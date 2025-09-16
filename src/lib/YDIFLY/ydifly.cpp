@@ -24,6 +24,9 @@ static void YDIFlyInit( void )
 
     YDIFlyRemoteDecode( &ydifly.remote );
     YDIFlyRemoteDecode( &ydifly.remote_last );
+
+    YDIFlyServoAngleControl( SERVO_L, YDIFLY_SERVO_ANGLE_L_INIT );  // 上电时，电机运行在初始位置
+    YDIFlyServoAngleControl( SERVO_R, YDIFLY_SERVO_ANGLE_R_INIT );  // 上电时，电机运行在初始位置
 }
 
 void YDIFlyControl( unsigned long now_time_ms )
