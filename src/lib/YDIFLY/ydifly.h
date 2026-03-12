@@ -36,10 +36,10 @@
 /******************** 舵机参数设置 ******************* */
 #define YDIFLY_SERVO_ANGLE_L_INIT           90
 #define YDIFLY_SERVO_ANGLE_R_INIT           105
-#define YDIFLY_SERVO_ANGLE_L_MAX            180
-#define YDIFLY_SERVO_ANGLE_L_MIN            0
-#define YDIFLY_SERVO_ANGLE_R_MAX            180
-#define YDIFLY_SERVO_ANGLE_R_MIN            0
+#define YDIFLY_SERVO_ANGLE_L_MAX            140
+#define YDIFLY_SERVO_ANGLE_L_MIN            35
+#define YDIFLY_SERVO_ANGLE_R_MAX            160
+#define YDIFLY_SERVO_ANGLE_R_MIN            50
 
 /******************** 舵机方向设置 ******************* */
 #define YDIFLY_SERVO_L_DIR                  0       // 左舵机摆动方向，0表示正向，1表示反向
