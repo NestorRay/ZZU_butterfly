@@ -1,8 +1,9 @@
 oldcode/oldcode.txt
 oldcode/ESP8266_OStimer.cpp
 oldcode/ESP8266_OStimer.h
-src/firmware.map
-src/src/fhss_freqs.h
-src/.vscode
-src/data/*.ini
-src/data/*.json
+firmware.map
+src/fhss_freqs.h
+.vscode
+data/*.ini
+data/*.json
+.github
