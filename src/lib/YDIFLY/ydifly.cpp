@@ -34,7 +34,7 @@ void YDIFlyControl( unsigned long now_time_ms )
 {
     static unsigned long last_time_ms_control = now_time_ms;    // 上一次时间
     static unsigned long last_time_ms_debug = now_time_ms;      // 上一次时间
-    static unsigned long last_time_ms = now_time_ms;            // 上一次时间
+    static unsigned long last_time_ms = now_time_ms;            // 上一次时间，仅用于时间溢出检测
     float angle_l_max, angle_l_min, angle_r_max, angle_r_min, control_T;
     /*输入保护*/
     if( last_time_ms > now_time_ms )    // 判断是否时间溢出，即超出49.7天
@@ -100,7 +100,6 @@ void YDIFlyControl( unsigned long now_time_ms )
 
                 /* 舵机角度控制 */
                 YDIFlyServoSinControl( angle_l_max, angle_l_min, angle_r_max, angle_r_min, control_T, YDIFLY_SPEED_DIFF );
-                // YDIFlyServoSinControl( 120, 60, 120, 60, 1000, YDIFLY_SPEED_DIFF );
             }
             else if( ydifly.remote.swc == 2 )     // 如果拨动开关，翅膀摆动。拨杆到上档位
             {
@@ -167,7 +166,9 @@ static void YDIFlyServoSinControl( float l_angle_max, float l_angle_min, float r
     /* 输入参数保护 */
     if( speed_diff > YDIFLY_CONTROL_CYCLE )         speed_diff = YDIFLY_CONTROL_CYCLE-1;
     else if( speed_diff < -YDIFLY_CONTROL_CYCLE )   speed_diff =-YDIFLY_CONTROL_CYCLE+1;
-
+    // (l_angle_max-l_angle_min)/2 将标准正弦函数的幅值放大到所需的扑翼震动角度
+    // (l_angle_max+l_angle_min)/2 将标准正弦函数的中性点水平平移
+    // sin( time_now*6.283185307179586/T )生成目前时间下的[-1,1]的系数
     angle_set = ((l_angle_max-l_angle_min)/2)*sin( time_now*6.283185307179586/T ) + (l_angle_max+l_angle_min)/2;
     YDIFlyServoAngleControl( SERVO_L, angle_set );
 
@@ -185,6 +186,8 @@ static void YDIFlyServoSinControl( float l_angle_max, float l_angle_min, float r
 }
 
 extern void startWaveform8266(uint8_t pin, uint32_t timeHighUS, uint32_t timeLowUS);
+
+//传入角度参数，转换为PWM信号输出给舵机
 static void YDIFlyServoAngleControl( ydifly_servo_name_e servo_name, float angle_set )
 {
     /*舵机控制角度和PWM占空比换算*/

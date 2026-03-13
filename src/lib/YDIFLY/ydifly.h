@@ -51,7 +51,10 @@
 #define YDIFLY_FACTOR_PITCH                 0.025f  //俯仰系数
 #define YDIFLY_FACTOR_AMP                   0.05f
 #define YDIFLY_FACTOR_OFFSET                0.05f
-
+// 如果 YDIFLY_FACTOR_FILTER 很大（接近 1）：算法更倾向于相信新数据，反应非常灵敏，
+// 但滤除噪声的能力较弱。
+// 如果 $\alpha$ 很小（接近 0）：算法更倾向于相信旧数据，对突发变化的反应迟钝，
+// 但能把遥控信号中的“抖动”（高频噪声）滤得非常干净。
 #define YDIFLY_FACTOR_FILTER                0.2f
 
 /******************** 翅膀扑翼周期设置 ******************* */
@@ -59,11 +62,14 @@
 #define YDIFLY_CYCLE_MAX                    500
 
 /******************** 翅膀扑翼幅度设置 ******************* */
-#define YDIFLY_AMP0                         35      // 扑翼幅度为 ±60°
-#define YDIFLY_AMP1                         45      // 扑翼幅度为 ±70°
-#define YDIFLY_AMP2                         55      // 扑翼幅度为 ±80°
+#define YDIFLY_AMP0                         35      // 扑翼幅度为 ±35°
+#define YDIFLY_AMP1                         45      // 扑翼幅度为 ±45°
+#define YDIFLY_AMP2                         55      // 扑翼幅度为 ±55°
 
 /******************** 翅膀上拍下拍速度差 ******************* */
+// 取正值，会减小正弦波在单减区间的时间流速，导致下扑的时候速度变慢
+// 同时会增加在单增区间流速，导致上扑的时候速度变快
+// 量纲为时间，改变的是相对一个cycle的时间尺度
 #define YDIFLY_SPEED_DIFF                   0       // 速度差需要在 -YDIFLY_CONTROL_CYCLE~YDIFLY_CONTROL_CYCLE 之间
 
 /******************** 任务控制周期参数 ******************* */
