@@ -26,8 +26,10 @@ static void YDIFlyInit( void )
     YDIFlyRemoteDecode( &ydifly.remote );
     YDIFlyRemoteDecode( &ydifly.remote_last );
 
-    YDIFlyServoAngleControl( SERVO_L, YDIFLY_SERVO_ANGLE_L_INIT );  // 上电时，电机运行在初始位置
-    YDIFlyServoAngleControl( SERVO_R, YDIFLY_SERVO_ANGLE_R_INIT );  // 上电时，电机运行在初始位置
+    YDIFlyServoAngleControl( SERVO_LM_L, YDIFLY_SERVO_LM_ANGLE_L_INIT );  // 上电时，电机运行在初始位置
+    YDIFlyServoAngleControl( SERVO_LM_R, YDIFLY_SERVO_LM_ANGLE_R_INIT );  // 上电时，电机运行在初始位置
+    YDIFlyServoAngleControl( SERVO_LJ_L, YDIFLY_SERVO_LJ_ANGLE_L_INIT );  // 上电时，电机运行在初始位置
+    YDIFlyServoAngleControl( SERVO_LJ_R, YDIFLY_SERVO_LJ_ANGLE_R_INIT );  // 上电时，电机运行在初始位置
 }
 
 void YDIFlyControl( unsigned long now_time_ms )
@@ -35,7 +37,11 @@ void YDIFlyControl( unsigned long now_time_ms )
     static unsigned long last_time_ms_control = now_time_ms;    // 上一次时间
     static unsigned long last_time_ms_debug = now_time_ms;      // 上一次时间
     static unsigned long last_time_ms = now_time_ms;            // 上一次时间，仅用于时间溢出检测
-    float angle_l_max, angle_l_min, angle_r_max, angle_r_min, control_T;
+    static float time_now_lm = 0;
+    static float time_now_lj = 0;
+    float lm_angle_l_max, lm_angle_l_min, lm_angle_r_max, lm_angle_r_min;
+    float lj_angle_l_max, lj_angle_l_min, lj_angle_r_max, lj_angle_r_min;
+    float control_T;
     /*输入保护*/
     if( last_time_ms > now_time_ms )    // 判断是否时间溢出，即超出49.7天
     {
@@ -84,39 +90,56 @@ void YDIFlyControl( unsigned long now_time_ms )
                 ydifly.remote_last.offset= ydifly.remote.offset;
 
                 /* 舵机范围控制 */
-                angle_l_max = YDIFLY_SERVO_ANGLE_L_INIT - ydifly.remote.yaw*YDIFLY_FACTOR_YAW - ydifly.remote.pitch*YDIFLY_FACTOR_PITCH - ydifly.remote.offset*YDIFLY_FACTOR_OFFSET + ydifly.remote.amp;
-                angle_l_min = YDIFLY_SERVO_ANGLE_L_INIT + ydifly.remote.yaw*YDIFLY_FACTOR_YAW - ydifly.remote.pitch*YDIFLY_FACTOR_PITCH - ydifly.remote.offset*YDIFLY_FACTOR_OFFSET - ydifly.remote.amp;
-                angle_r_max = YDIFLY_SERVO_ANGLE_L_INIT + ydifly.remote.yaw*YDIFLY_FACTOR_YAW - ydifly.remote.pitch*YDIFLY_FACTOR_PITCH + ydifly.remote.offset*YDIFLY_FACTOR_OFFSET + ydifly.remote.amp;
-                angle_r_min = YDIFLY_SERVO_ANGLE_L_INIT - ydifly.remote.yaw*YDIFLY_FACTOR_YAW - ydifly.remote.pitch*YDIFLY_FACTOR_PITCH + ydifly.remote.offset*YDIFLY_FACTOR_OFFSET - ydifly.remote.amp;
+                lm_angle_l_max = YDIFLY_SERVO_LM_ANGLE_L_INIT - ydifly.remote.yaw*YDIFLY_FACTOR_YAW - ydifly.remote.pitch*YDIFLY_FACTOR_PITCH - ydifly.remote.offset*YDIFLY_FACTOR_OFFSET + ydifly.remote.amp;
+                lm_angle_l_min = YDIFLY_SERVO_LM_ANGLE_L_INIT + ydifly.remote.yaw*YDIFLY_FACTOR_YAW - ydifly.remote.pitch*YDIFLY_FACTOR_PITCH - ydifly.remote.offset*YDIFLY_FACTOR_OFFSET - ydifly.remote.amp;
+                lm_angle_r_max = YDIFLY_SERVO_LM_ANGLE_R_INIT + ydifly.remote.yaw*YDIFLY_FACTOR_YAW - ydifly.remote.pitch*YDIFLY_FACTOR_PITCH + ydifly.remote.offset*YDIFLY_FACTOR_OFFSET + ydifly.remote.amp;
+                lm_angle_r_min = YDIFLY_SERVO_LM_ANGLE_R_INIT - ydifly.remote.yaw*YDIFLY_FACTOR_YAW - ydifly.remote.pitch*YDIFLY_FACTOR_PITCH + ydifly.remote.offset*YDIFLY_FACTOR_OFFSET - ydifly.remote.amp;
+
+                lj_angle_l_max = YDIFLY_SERVO_LJ_ANGLE_L_INIT - ydifly.remote.yaw*YDIFLY_FACTOR_YAW - ydifly.remote.pitch*YDIFLY_FACTOR_PITCH - ydifly.remote.offset*YDIFLY_FACTOR_OFFSET + ydifly.remote.amp;
+                lj_angle_l_min = YDIFLY_SERVO_LJ_ANGLE_L_INIT + ydifly.remote.yaw*YDIFLY_FACTOR_YAW - ydifly.remote.pitch*YDIFLY_FACTOR_PITCH - ydifly.remote.offset*YDIFLY_FACTOR_OFFSET - ydifly.remote.amp;
+                lj_angle_r_max = YDIFLY_SERVO_LJ_ANGLE_R_INIT + ydifly.remote.yaw*YDIFLY_FACTOR_YAW - ydifly.remote.pitch*YDIFLY_FACTOR_PITCH + ydifly.remote.offset*YDIFLY_FACTOR_OFFSET + ydifly.remote.amp;
+                lj_angle_r_min = YDIFLY_SERVO_LJ_ANGLE_R_INIT - ydifly.remote.yaw*YDIFLY_FACTOR_YAW - ydifly.remote.pitch*YDIFLY_FACTOR_PITCH + ydifly.remote.offset*YDIFLY_FACTOR_OFFSET - ydifly.remote.amp;
 
                 /* 限幅 */
-                if( angle_l_max > YDIFLY_SERVO_ANGLE_L_MAX )                angle_l_max = YDIFLY_SERVO_ANGLE_L_MAX;
-                if( angle_l_min < YDIFLY_SERVO_ANGLE_L_MIN )                angle_l_min = YDIFLY_SERVO_ANGLE_L_MIN;
-                if( angle_r_max > YDIFLY_SERVO_ANGLE_R_MAX )                angle_r_max = YDIFLY_SERVO_ANGLE_R_MAX;
-                if( angle_r_min < YDIFLY_SERVO_ANGLE_R_MIN )                angle_r_min = YDIFLY_SERVO_ANGLE_R_MIN;
+                if( lm_angle_l_max > YDIFLY_SERVO_LM_ANGLE_L_MAX )          lm_angle_l_max = YDIFLY_SERVO_LM_ANGLE_L_MAX;
+                if( lm_angle_l_min < YDIFLY_SERVO_LM_ANGLE_L_MIN )          lm_angle_l_min = YDIFLY_SERVO_LM_ANGLE_L_MIN;
+                if( lm_angle_r_max > YDIFLY_SERVO_LM_ANGLE_R_MAX )          lm_angle_r_max = YDIFLY_SERVO_LM_ANGLE_R_MAX;
+                if( lm_angle_r_min < YDIFLY_SERVO_LM_ANGLE_R_MIN )          lm_angle_r_min = YDIFLY_SERVO_LM_ANGLE_R_MIN;
+
+                if( lj_angle_l_max > YDIFLY_SERVO_LJ_ANGLE_L_MAX )          lj_angle_l_max = YDIFLY_SERVO_LJ_ANGLE_L_MAX;
+                if( lj_angle_l_min < YDIFLY_SERVO_LJ_ANGLE_L_MIN )          lj_angle_l_min = YDIFLY_SERVO_LJ_ANGLE_L_MIN;
+                if( lj_angle_r_max > YDIFLY_SERVO_LJ_ANGLE_R_MAX )          lj_angle_r_max = YDIFLY_SERVO_LJ_ANGLE_R_MAX;
+                if( lj_angle_r_min < YDIFLY_SERVO_LJ_ANGLE_R_MIN )          lj_angle_r_min = YDIFLY_SERVO_LJ_ANGLE_R_MIN;
 
                 /* 舵机控制正弦周期 */
                 control_T = YDIFLY_CYCLE_MAX + ydifly.remote.freq*(YDIFLY_CYCLE_MIN - YDIFLY_CYCLE_MAX)/1500;
 
                 /* 舵机角度控制 */
-                YDIFlyServoSinControl( angle_l_max, angle_l_min, angle_r_max, angle_r_min, control_T, YDIFLY_SPEED_DIFF );
+                YDIFlyServoSinControl( SERVO_LM_L, SERVO_LM_R, lm_angle_l_max, lm_angle_l_min, lm_angle_r_max, lm_angle_r_min, control_T, YDIFLY_SPEED_DIFF, &time_now_lm );
+                YDIFlyServoSinControl( SERVO_LJ_L, SERVO_LJ_R, lj_angle_l_max, lj_angle_l_min, lj_angle_r_max, lj_angle_r_min, control_T, YDIFLY_SPEED_DIFF, &time_now_lj );
             }
             else if( ydifly.remote.swc == 2 )     // 如果拨动开关，翅膀摆动。拨杆到上档位
             {
-                YDIFlyServoAngleControl( SERVO_L, YDIFLY_SERVO_ANGLE_L_MIN );
-                YDIFlyServoAngleControl( SERVO_R, YDIFLY_SERVO_ANGLE_R_MIN );
+                YDIFlyServoAngleControl( SERVO_LM_L, YDIFLY_SERVO_LM_ANGLE_L_MIN );
+                YDIFlyServoAngleControl( SERVO_LM_R, YDIFLY_SERVO_LM_ANGLE_R_MIN );
+                YDIFlyServoAngleControl( SERVO_LJ_L, YDIFLY_SERVO_LJ_ANGLE_L_MIN );
+                YDIFlyServoAngleControl( SERVO_LJ_R, YDIFLY_SERVO_LJ_ANGLE_R_MIN );
 
             }
             else if( ydifly.remote.swc == 1 )     // 舵机处于初始位置。拨杆到中档位
             {
-                YDIFlyServoAngleControl( SERVO_L, YDIFLY_SERVO_ANGLE_L_INIT - ydifly.remote.pitch*YDIFLY_FACTOR_PITCH - ydifly.remote.offset*YDIFLY_FACTOR_OFFSET );
-                YDIFlyServoAngleControl( SERVO_R, YDIFLY_SERVO_ANGLE_R_INIT - ydifly.remote.pitch*YDIFLY_FACTOR_PITCH + ydifly.remote.offset*YDIFLY_FACTOR_OFFSET );
+                YDIFlyServoAngleControl( SERVO_LM_L, YDIFLY_SERVO_LM_ANGLE_L_INIT - ydifly.remote.pitch*YDIFLY_FACTOR_PITCH - ydifly.remote.offset*YDIFLY_FACTOR_OFFSET );
+                YDIFlyServoAngleControl( SERVO_LM_R, YDIFLY_SERVO_LM_ANGLE_R_INIT - ydifly.remote.pitch*YDIFLY_FACTOR_PITCH + ydifly.remote.offset*YDIFLY_FACTOR_OFFSET );
+                YDIFlyServoAngleControl( SERVO_LJ_L, YDIFLY_SERVO_LJ_ANGLE_L_INIT - ydifly.remote.pitch*YDIFLY_FACTOR_PITCH - ydifly.remote.offset*YDIFLY_FACTOR_OFFSET );
+                YDIFlyServoAngleControl( SERVO_LJ_R, YDIFLY_SERVO_LJ_ANGLE_R_INIT - ydifly.remote.pitch*YDIFLY_FACTOR_PITCH + ydifly.remote.offset*YDIFLY_FACTOR_OFFSET );
 
             }
             else    // 如果拨动开关，翅膀摆动。拨杆到下档位
             {
-                YDIFlyServoAngleControl( SERVO_L, YDIFLY_SERVO_ANGLE_L_MAX );
-                YDIFlyServoAngleControl( SERVO_R, YDIFLY_SERVO_ANGLE_R_MAX );
+                YDIFlyServoAngleControl( SERVO_LM_L, YDIFLY_SERVO_LM_ANGLE_L_MAX );
+                YDIFlyServoAngleControl( SERVO_LM_R, YDIFLY_SERVO_LM_ANGLE_R_MAX );
+                YDIFlyServoAngleControl( SERVO_LJ_L, YDIFLY_SERVO_LJ_ANGLE_L_MAX );
+                YDIFlyServoAngleControl( SERVO_LJ_R, YDIFLY_SERVO_LJ_ANGLE_R_MAX );
             }
         }
 
@@ -125,7 +148,7 @@ void YDIFlyControl( unsigned long now_time_ms )
         {
             last_time_ms_debug += YDIFLY_DEBUG_CYCLE;       // 时间补全
             
-            // Serial.printf("\r\n%f,%f,%f,%f,%f\r\n", angle_l_max, angle_l_min, angle_r_max, angle_r_min, control_T);
+            // Serial.printf("\r\n%f,%f,%f,%f,%f\r\n", lm_angle_l_max, lm_angle_l_min, lm_angle_r_max, lm_angle_r_min, control_T);
             // Serial.printf("\r\n%d,%d,%d,%d\r\n", ydifly.remote.raw[YDIFLY_REMOTE_SWA], ydifly.remote.raw[YDIFLY_REMOTE_SWB], ydifly.remote.raw[YDIFLY_REMOTE_SWC], ydifly.remote.raw[YDIFLY_REMOTE_SWD]);
             // Serial.printf("\r\n%d,%d,%d,%d\r\n", ydifly.remote.swa, ydifly.remote.swb, ydifly.remote.swc, ydifly.remote.swd);
         }
@@ -158,10 +181,11 @@ static void YDIFlyRemoteDecode( ydifly_remote_cmd_t* remote )
     else if( ydifly.remote.raw[YDIFLY_REMOTE_SWD] > 800 )       remote->swd = 1;
 }
 
-static void YDIFlyServoSinControl( float l_angle_max, float l_angle_min, float r_angle_max, float r_angle_min, float T, float speed_diff )
+static void YDIFlyServoSinControl( ydifly_servo_name_e servo_l, ydifly_servo_name_e servo_r, float l_angle_max, float l_angle_min, float r_angle_max, float r_angle_min, float T, float speed_diff, float *time_now )
 {
     float angle_set = 0;
-    static float time_now = 0;
+
+    if( time_now == NULL ) return;
 
     /* 输入参数保护 */
     if( speed_diff > YDIFLY_CONTROL_CYCLE )         speed_diff = YDIFLY_CONTROL_CYCLE-1;
@@ -169,19 +193,19 @@ static void YDIFlyServoSinControl( float l_angle_max, float l_angle_min, float r
     // (l_angle_max-l_angle_min)/2 将标准正弦函数的幅值放大到所需的扑翼震动角度
     // (l_angle_max+l_angle_min)/2 将标准正弦函数的中性点水平平移
     // sin( time_now*6.283185307179586/T )生成目前时间下的[-1,1]的系数
-    angle_set = ((l_angle_max-l_angle_min)/2)*sin( time_now*6.283185307179586/T ) + (l_angle_max+l_angle_min)/2;
-    YDIFlyServoAngleControl( SERVO_L, angle_set );
+    angle_set = ((l_angle_max-l_angle_min)/2)*sin( (*time_now)*6.283185307179586/T ) + (l_angle_max+l_angle_min)/2;
+    YDIFlyServoAngleControl( servo_l, angle_set );
 
-    angle_set = ((r_angle_max-r_angle_min)/2)*sin( time_now*6.283185307179586/T ) + (r_angle_max+r_angle_min)/2;
-    YDIFlyServoAngleControl( SERVO_R, angle_set );
+    angle_set = ((r_angle_max-r_angle_min)/2)*sin( (*time_now)*6.283185307179586/T ) + (r_angle_max+r_angle_min)/2;
+    YDIFlyServoAngleControl( servo_r, angle_set );
 
-    time_now += YDIFLY_CONTROL_CYCLE;
-    if( (time_now > T*0.25f) && (time_now < T*0.75f) )  time_now -= speed_diff;
-    else                                                time_now += speed_diff;
+    *time_now += YDIFLY_CONTROL_CYCLE;
+    if( (*time_now > T*0.25f) && (*time_now < T*0.75f) )  *time_now -= speed_diff;
+    else                                                  *time_now += speed_diff;
 
-    if( time_now > T )
+    if( *time_now > T )
     {
-        time_now -= T;
+        *time_now -= T;
     }    
 }
 
@@ -198,18 +222,32 @@ static void YDIFlyServoAngleControl( ydifly_servo_name_e servo_name, float angle
     /*对应角度的舵机控制*/
     switch (servo_name)
     {
-    case SERVO_L:
+    case SERVO_LM_L:
         #if YDIFLY_SERVO_L_DIR
-        startWaveform8266(YDIFLY_SERVO_L_PIN, time_hight_us_r, 20000-time_hight_us_r);
+        startWaveform8266(YDIFLY_SERVO_LM_L_PIN, time_hight_us_r, 20000-time_hight_us_r);
         #else
-        startWaveform8266(YDIFLY_SERVO_L_PIN, time_hight_us, 20000-time_hight_us);
+        startWaveform8266(YDIFLY_SERVO_LM_L_PIN, time_hight_us, 20000-time_hight_us);
         #endif
         break;
-    case SERVO_R:
+    case SERVO_LM_R:
         #if YDIFLY_SERVO_R_DIR
-        startWaveform8266(YDIFLY_SERVO_R_PIN, time_hight_us_r, 20000-time_hight_us_r);
+        startWaveform8266(YDIFLY_SERVO_LM_R_PIN, time_hight_us_r, 20000-time_hight_us_r);
         #else
-        startWaveform8266(YDIFLY_SERVO_R_PIN, time_hight_us, 20000-time_hight_us);
+        startWaveform8266(YDIFLY_SERVO_LM_R_PIN, time_hight_us, 20000-time_hight_us);
+        #endif
+        break;
+    case SERVO_LJ_L:
+        #if YDIFLY_SERVO_L_DIR
+        startWaveform8266(YDIFLY_SERVO_LJ_L_PIN, time_hight_us_r, 20000-time_hight_us_r);
+        #else
+        startWaveform8266(YDIFLY_SERVO_LJ_L_PIN, time_hight_us, 20000-time_hight_us);
+        #endif
+        break;
+    case SERVO_LJ_R:
+        #if YDIFLY_SERVO_R_DIR
+        startWaveform8266(YDIFLY_SERVO_LJ_R_PIN, time_hight_us_r, 20000-time_hight_us_r);
+        #else
+        startWaveform8266(YDIFLY_SERVO_LJ_R_PIN, time_hight_us, 20000-time_hight_us);
         #endif
         break;
     }

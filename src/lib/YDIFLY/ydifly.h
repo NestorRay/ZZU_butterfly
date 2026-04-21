@@ -19,8 +19,10 @@
 #include <Arduino.h>
 
 /******************** 基本参数 ******************* */
-#define YDIFLY_SERVO_L_PIN                  10      // 引脚设置
-#define YDIFLY_SERVO_R_PIN                  1       // 引脚设置
+#define YDIFLY_SERVO_LM_L_PIN                  10      // 引脚设置
+#define YDIFLY_SERVO_LM_R_PIN                  1       // 引脚设置
+#define YDIFLY_SERVO_LJ_L_PIN                  2       // 引脚设置
+#define YDIFLY_SERVO_LJ_R_PIN                  3       // 引脚设置
 
 #define YDIFLY_REMOTE_LX                    3       // 左X轴摇杆
 #define YDIFLY_REMOTE_LY                    2       // 左Y轴摇杆
@@ -33,13 +35,21 @@
 
 #define YDIFLY_REMOTE_JOY_MID               992     // 遥控摇杆的中间值
 
-/******************** 舵机参数设置 ******************* */
-#define YDIFLY_SERVO_ANGLE_L_INIT           90
-#define YDIFLY_SERVO_ANGLE_R_INIT           105
-#define YDIFLY_SERVO_ANGLE_L_MAX            140
-#define YDIFLY_SERVO_ANGLE_L_MIN            35
-#define YDIFLY_SERVO_ANGLE_R_MAX            160
-#define YDIFLY_SERVO_ANGLE_R_MIN            50
+/******************** 灵眸舵机参数设置 ******************* */
+#define YDIFLY_SERVO_LM_ANGLE_L_INIT           90
+#define YDIFLY_SERVO_LM_ANGLE_R_INIT           105
+#define YDIFLY_SERVO_LM_ANGLE_L_MAX            140
+#define YDIFLY_SERVO_LM_ANGLE_L_MIN            35
+#define YDIFLY_SERVO_LM_ANGLE_R_MAX            160
+#define YDIFLY_SERVO_LM_ANGLE_R_MIN            50
+
+/******************** 蓝箭舵机参数设置 ******************* */
+#define YDIFLY_SERVO_LJ_ANGLE_L_INIT           90
+#define YDIFLY_SERVO_LJ_ANGLE_R_INIT           105
+#define YDIFLY_SERVO_LJ_ANGLE_L_MAX            140
+#define YDIFLY_SERVO_LJ_ANGLE_L_MIN            35
+#define YDIFLY_SERVO_LJ_ANGLE_R_MAX            160
+#define YDIFLY_SERVO_LJ_ANGLE_R_MIN            50
 
 /******************** 舵机方向设置 ******************* */
 #define YDIFLY_SERVO_L_DIR                  0       // 左舵机摆动方向，0表示正向，1表示反向
@@ -79,8 +89,10 @@
 
 typedef enum
 {
-    SERVO_L,    // 左翅膀舵机
-    SERVO_R,    // 右翅膀舵机
+    SERVO_LM_L,    // 灵眸左翅膀舵机
+    SERVO_LM_R,    // 灵眸右翅膀舵机
+    SERVO_LJ_L,    // 蓝箭左翅膀舵机
+    SERVO_LJ_R,    // 蓝箭右翅膀舵机
 }ydifly_servo_name_e;
 
 
@@ -110,7 +122,7 @@ typedef struct
 
 void YDIFlyControl( unsigned long now_time_ms );
 
-static void YDIFlyServoSinControl( float l_angle_max, float l_angle_min, float r_angle_max, float r_angle_min, float T, float speed_diff );
+static void YDIFlyServoSinControl( ydifly_servo_name_e servo_l, ydifly_servo_name_e servo_r, float l_angle_max, float l_angle_min, float r_angle_max, float r_angle_min, float T, float speed_diff, float *time_now );
 static void YDIFlyRemoteDecode( ydifly_remote_cmd_t* remote );
 static void YDIFlyInit( void );
 static void YDIFlyServoAngleControl( ydifly_servo_name_e servo_name, float angle_set );
