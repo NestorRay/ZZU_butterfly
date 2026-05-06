@@ -16,9 +16,6 @@
 #include "CRSF.h"
 #include "common.h"
 
-extern void startWaveform8266(uint8_t pin, uint32_t timeHighUS, uint32_t timeLowUS);
-extern void stopWaveform8266(uint8_t pin);
-
 ydifly_control_t ydifly;
 extern connectionState_e connectionState;
 
@@ -38,7 +35,6 @@ void YDIFlyControl( unsigned long now_time_ms )
     static unsigned long last_time_ms_control = now_time_ms;    // 上一次时间
     static unsigned long last_time_ms_debug = now_time_ms;      // 上一次时间
     static unsigned long last_time_ms = now_time_ms;            // 上一次时间，仅用于时间溢出检测
-    static bool wasFlapping = false;                             // 标记上一次是否为扑翼模式，用于静态模式同步启动舵机
     float angle_l_max, angle_l_min, angle_r_max, angle_r_min, control_T;
     /*输入保护*/
     if( last_time_ms > now_time_ms )    // 判断是否时间溢出，即超出49.7天
@@ -104,32 +100,23 @@ void YDIFlyControl( unsigned long now_time_ms )
 
                 /* 舵机角度控制 */
                 YDIFlyServoSinControl( angle_l_max, angle_l_min, angle_r_max, angle_r_min, control_T, YDIFLY_SPEED_DIFF );
-                wasFlapping = true;
             }
-            else
+            else if( ydifly.remote.swc == 2 )     // 如果拨动开关，翅膀摆动。拨杆到上档位
             {
-                /* 从扑翼模式切换到静态模式时，先停止两侧波形再同步启动，避免异步上升沿导致舵机不同步 */
-                if( wasFlapping )
-                {
-                    stopWaveform8266(YDIFLY_SERVO_L_PIN);
-                    stopWaveform8266(YDIFLY_SERVO_R_PIN);
-                    wasFlapping = false;
-                }
-                if( ydifly.remote.swc == 2 )     // 如果拨动开关，翅膀摆动。拨杆到上档位
-                {
-                    YDIFlyServoAngleControl( SERVO_L, YDIFLY_SERVO_ANGLE_L_MIN );
-                    YDIFlyServoAngleControl( SERVO_R, YDIFLY_SERVO_ANGLE_R_MIN );
-                }
-                else if( ydifly.remote.swc == 1 )     // 舵机处于初始位置。拨杆到中档位
-                {
-                    YDIFlyServoAngleControl( SERVO_L, YDIFLY_SERVO_ANGLE_L_INIT - ydifly.remote.pitch*YDIFLY_FACTOR_PITCH - ydifly.remote.offset*YDIFLY_FACTOR_OFFSET );
-                    YDIFlyServoAngleControl( SERVO_R, YDIFLY_SERVO_ANGLE_R_INIT - ydifly.remote.pitch*YDIFLY_FACTOR_PITCH + ydifly.remote.offset*YDIFLY_FACTOR_OFFSET );
-                }
-                else    // 如果拨动开关，翅膀摆动。拨杆到下档位
-                {
-                    YDIFlyServoAngleControl( SERVO_L, YDIFLY_SERVO_ANGLE_L_MAX );
-                    YDIFlyServoAngleControl( SERVO_R, YDIFLY_SERVO_ANGLE_R_MAX );
-                }
+                YDIFlyServoAngleControl( SERVO_L, YDIFLY_SERVO_ANGLE_L_MIN );
+                YDIFlyServoAngleControl( SERVO_R, YDIFLY_SERVO_ANGLE_R_MIN );
+
+            }
+            else if( ydifly.remote.swc == 1 )     // 舵机处于初始位置。拨杆到中档位
+            {
+                YDIFlyServoAngleControl( SERVO_L, YDIFLY_SERVO_ANGLE_L_INIT - ydifly.remote.pitch*YDIFLY_FACTOR_PITCH - ydifly.remote.offset*YDIFLY_FACTOR_OFFSET );
+                YDIFlyServoAngleControl( SERVO_R, YDIFLY_SERVO_ANGLE_R_INIT - ydifly.remote.pitch*YDIFLY_FACTOR_PITCH + ydifly.remote.offset*YDIFLY_FACTOR_OFFSET );
+
+            }
+            else    // 如果拨动开关，翅膀摆动。拨杆到下档位
+            {
+                YDIFlyServoAngleControl( SERVO_L, YDIFLY_SERVO_ANGLE_L_MAX );
+                YDIFlyServoAngleControl( SERVO_R, YDIFLY_SERVO_ANGLE_R_MAX );
             }
         }
 
@@ -197,6 +184,8 @@ static void YDIFlyServoSinControl( float l_angle_max, float l_angle_min, float r
         time_now -= T;
     }    
 }
+
+extern void startWaveform8266(uint8_t pin, uint32_t timeHighUS, uint32_t timeLowUS);
 
 //传入角度参数，转换为PWM信号输出给舵机
 static void YDIFlyServoAngleControl( ydifly_servo_name_e servo_name, float angle_set )
