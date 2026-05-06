@@ -58,7 +58,7 @@
 #define YDIFLY_FACTOR_FILTER                0.2f
 
 /******************** 翅膀扑翼周期设置 ******************* */
-#define YDIFLY_CYCLE_MIN                    333
+#define YDIFLY_CYCLE_MIN                    250
 #define YDIFLY_CYCLE_MAX                    500
 
 /******************** 翅膀扑翼幅度设置 ******************* */
