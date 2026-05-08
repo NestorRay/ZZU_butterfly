@@ -4,20 +4,116 @@
  *             YDIFLY蝴蝶扑翼机开源代码，其中功能包括实现蝴蝶的基本遥控飞行，翅膀竖立功能等等，且可通过修改宏定义轻松修改代码参数，无须看懂代码。
  *             一体板具有体积小质量轻，只有一个接收机重量的优势，集所有功能于一身，将主控板重量做到极致。
  * @author   : 一点创绘
- * @date     : 2025-9-14
- * @version  : v1.3
+ * @date     : 2026-1-26
+ * @version  : v2.1
  * 
  * @license  : GPL 3.0 License
  * @changelog:
+ * - v2.1 (2026-1-26): 立翅加入可调速功能。
+ * - v2.0 (2026-1-24): 优化遥控的控制逻辑，控制更加灵活。
  * - v1.4 (2025-9-16): 加入上电时电机进入初始位置。
  * - v1.3 (2025-9-14): 初步正式发布开源代码，具有控制蝴蝶飞行，电池电量反馈，连接ELRS遥控等基础功能。
  */
-#include "ydifly.h"
 #include "CRSF.h"
 #include "common.h"
+#include "ydifly.h"
 
+/******************** 基本参数 ******************* */
+#define YDIFLY_SERVO_L_PIN                  10      // 引脚设置
+#define YDIFLY_SERVO_R_PIN                  1       // 引脚设置
+
+#define YDIFLY_REMOTE_LX                    3       // 左X轴摇杆
+#define YDIFLY_REMOTE_LY                    2       // 左Y轴摇杆
+#define YDIFLY_REMOTE_RX                    0       // 右X轴摇杆
+#define YDIFLY_REMOTE_RY                    1       // 右Y轴摇杆
+#define YDIFLY_REMOTE_SWA                   4       // SWA拨杆
+#define YDIFLY_REMOTE_SWB                   5       // SWB拨杆
+#define YDIFLY_REMOTE_SWC                   6       // SWC拨杆
+#define YDIFLY_REMOTE_SWD                   7       // SWD拨杆
+
+#define YDIFLY_REMOTE_JOY_MID               992     // 遥控摇杆的中间值
+
+/******************** 舵机参数设置 ******************* */
+#define YDIFLY_SERVO_ANGLE_L_INIT           90
+#define YDIFLY_SERVO_ANGLE_R_INIT           105
+#define YDIFLY_SERVO_ANGLE_L_MAX            140
+#define YDIFLY_SERVO_ANGLE_L_MIN            35
+#define YDIFLY_SERVO_ANGLE_R_MAX            160
+#define YDIFLY_SERVO_ANGLE_R_MIN            50
+
+/******************** 舵机方向设置 ******************* */
+#define YDIFLY_SERVO_L_DIR                  0       // 左舵机摆动方向，0表示正向，1表示反向
+#define YDIFLY_SERVO_R_DIR                  1       // 右舵机摆动方向，0表示正向，1表示反向
+
+/******************** 遥控控制系数设置 ******************* */
+#define YDIFLY_YAW_REMOTE_ANGLE_MAX         20.0f   // 正负20°
+#define YDIFLY_FACTOR_FREQ                  0.05f   // 频率系数
+#define YDIFLY_FACTOR_AMP                   0.05f
+#define YDIFLY_FACTOR_OFFSET                0.02f
+
+#define YDIFLY_FACTOR_FILTER                0.2f
+
+/******************** 翅膀扑翼周期设置 ******************* */
+#define YDIFLY_CYCLE_MIN                    235
+#define YDIFLY_CYCLE_MAX                    500
+
+/******************** 翅膀扑翼幅度设置 ******************* */
+#define YDIFLY_AMP0                         35      // 扑翼幅度为 ±30°
+#define YDIFLY_AMP1                         45      // 扑翼幅度为 ±40°
+#define YDIFLY_AMP2                         55      // 扑翼幅度为 ±50°
+
+/******************** 立翅速度设置 ******************* */
+#define YDIFLY_WING_STAND_SPEED             0.5f    // 数字越小速度越慢
+
+/******************** 翅膀上拍下拍速度差 ******************* */
+#define YDIFLY_SPEED_DIFF                   8       // 速度差需要在 -YDIFLY_CONTROL_CYCLE~YDIFLY_CONTROL_CYCLE 之间
+
+/******************** 任务控制周期参数 ******************* */
+#define YDIFLY_CONTROL_CYCLE                25      // 舵机的控制周期，ms
+#define YDIFLY_DEBUG_CYCLE                  100     // debug的控制周期，ms
+
+
+typedef enum
+{
+    SERVO_L,    // 左翅膀舵机
+    SERVO_R,    // 右翅膀舵机
+}ydifly_servo_name_e;
+
+
+typedef struct
+{
+    uint32_t *raw;                  // 遥控原始数据
+    float amp;                      // 扑翼幅值
+    float freq;                     // 扑翼频率
+    float offset;                   // 舵机中间值偏移
+    float yaw;                      // 偏航角度控制
+    float pitch;                    // 俯仰角度控制
+    uint8_t swa;                    // SWA 信号，0和2
+    uint8_t swb;                    // SWB 信号，0、1、2
+    uint8_t swc;                    // SWC 信号，0、1、2
+    uint8_t swd;                    // SWD 信号，0、1、2
+}ydifly_remote_cmd_t;
+
+
+typedef struct
+{
+    uint8_t init_flag;              // 初始化标志位，0表示还没初始化，1则表示已经完成初始化
+    ydifly_remote_cmd_t remote;     // 遥控相关参数
+    ydifly_remote_cmd_t remote_last;// 上一次遥控参数
+}ydifly_control_t;
+
+/* 全局变量 */
 ydifly_control_t ydifly;
 extern connectionState_e connectionState;
+float time_now = 0;
+float time_init = 0;
+
+/* 函数声明 */
+static void YDIFlyServoSinControl( float l_angle_max, float l_angle_min, float r_angle_max, float r_angle_min, float T, float speed_diff );
+static void YDIFlyRemoteDecode( ydifly_remote_cmd_t* remote );
+static void YDIFlyInit( void );
+static void YDIFlyServoAngleControl( ydifly_servo_name_e servo_name, float angle_set );
+static void YDIFlyServoAngleSpeedControl( ydifly_servo_name_e servo_name, float angle_set, float speed );
 
 static void YDIFlyInit( void )
 {
@@ -30,12 +126,15 @@ static void YDIFlyInit( void )
     YDIFlyServoAngleControl( SERVO_R, YDIFLY_SERVO_ANGLE_R_INIT );  // 上电时，电机运行在初始位置
 }
 
+/******************* 主控制函数 *******************/
 void YDIFlyControl( unsigned long now_time_ms )
 {
     static unsigned long last_time_ms_control = now_time_ms;    // 上一次时间
     static unsigned long last_time_ms_debug = now_time_ms;      // 上一次时间
-    static unsigned long last_time_ms = now_time_ms;            // 上一次时间，仅用于时间溢出检测
-    float angle_l_max, angle_l_min, angle_r_max, angle_r_min, control_T;
+
+    static unsigned long last_time_ms = now_time_ms;            // 上一次时间
+    float control_T;
+
     /*输入保护*/
     if( last_time_ms > now_time_ms )    // 判断是否时间溢出，即超出49.7天
     {
@@ -58,65 +157,118 @@ void YDIFlyControl( unsigned long now_time_ms )
         /* 舵机周期控制 */
         if( now_time_ms - last_time_ms_control >= YDIFLY_CONTROL_CYCLE )
         {
+            float angle_l_add, angle_l_mid, angle_r_add, angle_r_mid;
+            float temp = 0;
+
             last_time_ms_control += YDIFLY_CONTROL_CYCLE;     // 时间补全
 
             /* 获取遥控解算数据 */
             YDIFlyRemoteDecode( &ydifly.remote );
 
+            /* 翅膀扑翼幅度解算 */
+            if     ( ydifly.remote.swb == 0 )        ydifly.remote.amp = YDIFLY_AMP0;   // 不同档位幅值不同
+            else if( ydifly.remote.swb == 1 )        ydifly.remote.amp = YDIFLY_AMP1;   // 不同档位幅值不同
+            else                                     ydifly.remote.amp = YDIFLY_AMP2;   // 不同档位幅值不同
+            
+            /* 通过SWD拨杆，设置翅膀第一次是向上扑还是向下扑 */
+            if     ( ydifly.remote.swd == 2 )        time_init = 3.141592653f;  // SWD上拨，扑翼初始方向反向
+            else                                     time_init = 0;             // SWD下拨和中档，扑翼初始方向正向
+
+            /* 一阶滤波 */
+            ydifly.remote.yaw   = YDIFLY_FACTOR_FILTER*ydifly.remote.yaw    + (1-YDIFLY_FACTOR_FILTER)*ydifly.remote_last.yaw;
+            ydifly.remote.pitch = YDIFLY_FACTOR_FILTER*ydifly.remote.pitch  + (1-YDIFLY_FACTOR_FILTER)*ydifly.remote_last.pitch;
+            ydifly.remote.freq  = YDIFLY_FACTOR_FILTER*ydifly.remote.freq   + (1-YDIFLY_FACTOR_FILTER)*ydifly.remote_last.freq;
+            ydifly.remote.amp   = YDIFLY_FACTOR_FILTER*ydifly.remote.amp    + (1-YDIFLY_FACTOR_FILTER)*ydifly.remote_last.amp;
+            ydifly.remote.offset= YDIFLY_FACTOR_FILTER*ydifly.remote.offset + (1-YDIFLY_FACTOR_FILTER)*ydifly.remote_last.offset;
+
+            ydifly.remote_last.yaw   = ydifly.remote.yaw;
+            ydifly.remote_last.pitch = ydifly.remote.pitch;
+            ydifly.remote_last.freq  = ydifly.remote.freq;
+            ydifly.remote_last.amp   = ydifly.remote.amp;
+            ydifly.remote_last.offset= ydifly.remote.offset;
+
+            /* 舵机角度控制 */
+            if( ydifly.remote.pitch > 0 )
+            {
+                angle_l_mid = (YDIFLY_SERVO_ANGLE_L_INIT-YDIFLY_SERVO_ANGLE_L_MIN-ydifly.remote.amp)*ydifly.remote.pitch/1500;
+                angle_r_mid = (YDIFLY_SERVO_ANGLE_R_INIT-YDIFLY_SERVO_ANGLE_R_MIN-ydifly.remote.amp)*ydifly.remote.pitch/1500;
+                temp = (angle_l_mid>angle_r_mid) ? angle_r_mid : angle_l_mid;
+            }
+            else
+            {
+                angle_l_mid = (YDIFLY_SERVO_ANGLE_L_MAX-YDIFLY_SERVO_ANGLE_L_INIT-ydifly.remote.amp)*ydifly.remote.pitch/1500;
+                angle_r_mid = (YDIFLY_SERVO_ANGLE_R_MAX-YDIFLY_SERVO_ANGLE_R_INIT-ydifly.remote.amp)*ydifly.remote.pitch/1500;
+                temp = (angle_l_mid>angle_r_mid) ? angle_l_mid : angle_r_mid;
+            }
+
+            /* 舵机扑翼中位值计算 */
+            angle_l_mid = YDIFLY_SERVO_ANGLE_L_INIT - temp + ydifly.remote.offset*YDIFLY_FACTOR_OFFSET;
+            angle_r_mid = YDIFLY_SERVO_ANGLE_R_INIT - temp - ydifly.remote.offset*YDIFLY_FACTOR_OFFSET;
+
             if( ydifly.remote.freq > 10 )    // 如果有给油门，则进入起飞程序
             {
-                /* 翅膀扑翼幅度解算 */
-                if     ( ydifly.remote.swb == 0 )        ydifly.remote.amp = YDIFLY_AMP0;   // 不同档位幅值不同
-                else if( ydifly.remote.swb == 1 )        ydifly.remote.amp = YDIFLY_AMP1;   // 不同档位幅值不同
-                else                                     ydifly.remote.amp = YDIFLY_AMP2;   // 不同档位幅值不同
+                float angle_rate = 1, angle_rate_min = 1;
 
-                /* 一阶滤波 */
-                ydifly.remote.yaw   = YDIFLY_FACTOR_FILTER*ydifly.remote.yaw    + (1-YDIFLY_FACTOR_FILTER)*ydifly.remote_last.yaw;
-                ydifly.remote.pitch = YDIFLY_FACTOR_FILTER*ydifly.remote.pitch  + (1-YDIFLY_FACTOR_FILTER)*ydifly.remote_last.pitch;
-                ydifly.remote.freq  = YDIFLY_FACTOR_FILTER*ydifly.remote.freq   + (1-YDIFLY_FACTOR_FILTER)*ydifly.remote_last.freq;
-                ydifly.remote.amp   = YDIFLY_FACTOR_FILTER*ydifly.remote.amp    + (1-YDIFLY_FACTOR_FILTER)*ydifly.remote_last.amp;
-                ydifly.remote.offset= YDIFLY_FACTOR_FILTER*ydifly.remote.offset + (1-YDIFLY_FACTOR_FILTER)*ydifly.remote_last.offset;
 
-                ydifly.remote_last.yaw   = ydifly.remote.yaw;
-                ydifly.remote_last.pitch = ydifly.remote.pitch;
-                ydifly.remote_last.freq  = ydifly.remote.freq;
-                ydifly.remote_last.amp   = ydifly.remote.amp;
-                ydifly.remote_last.offset= ydifly.remote.offset;
+                temp = (ydifly.remote.yaw>0) ? (ydifly.remote.yaw*YDIFLY_YAW_REMOTE_ANGLE_MAX/1500) : (ydifly.remote.yaw*YDIFLY_YAW_REMOTE_ANGLE_MAX/1500);
+                angle_l_add = - temp + ydifly.remote.amp;
+                angle_r_add = + temp + ydifly.remote.amp;
 
-                /* 舵机范围控制 */
-                angle_l_max = YDIFLY_SERVO_ANGLE_L_INIT - ydifly.remote.yaw*YDIFLY_FACTOR_YAW - ydifly.remote.pitch*YDIFLY_FACTOR_PITCH - ydifly.remote.offset*YDIFLY_FACTOR_OFFSET + ydifly.remote.amp;
-                angle_l_min = YDIFLY_SERVO_ANGLE_L_INIT + ydifly.remote.yaw*YDIFLY_FACTOR_YAW - ydifly.remote.pitch*YDIFLY_FACTOR_PITCH - ydifly.remote.offset*YDIFLY_FACTOR_OFFSET - ydifly.remote.amp;
-                angle_r_max = YDIFLY_SERVO_ANGLE_L_INIT + ydifly.remote.yaw*YDIFLY_FACTOR_YAW - ydifly.remote.pitch*YDIFLY_FACTOR_PITCH + ydifly.remote.offset*YDIFLY_FACTOR_OFFSET + ydifly.remote.amp;
-                angle_r_min = YDIFLY_SERVO_ANGLE_L_INIT - ydifly.remote.yaw*YDIFLY_FACTOR_YAW - ydifly.remote.pitch*YDIFLY_FACTOR_PITCH + ydifly.remote.offset*YDIFLY_FACTOR_OFFSET - ydifly.remote.amp;
 
                 /* 限幅 */
-                if( angle_l_max > YDIFLY_SERVO_ANGLE_L_MAX )                angle_l_max = YDIFLY_SERVO_ANGLE_L_MAX;
-                if( angle_l_min < YDIFLY_SERVO_ANGLE_L_MIN )                angle_l_min = YDIFLY_SERVO_ANGLE_L_MIN;
-                if( angle_r_max > YDIFLY_SERVO_ANGLE_R_MAX )                angle_r_max = YDIFLY_SERVO_ANGLE_R_MAX;
-                if( angle_r_min < YDIFLY_SERVO_ANGLE_R_MIN )                angle_r_min = YDIFLY_SERVO_ANGLE_R_MIN;
+                angle_l_add = (angle_l_add>ydifly.remote.amp) ? ydifly.remote.amp : angle_l_add;
+                angle_r_add = (angle_r_add>ydifly.remote.amp) ? ydifly.remote.amp : angle_r_add;
+
+                /* 限幅 */
+                if( (angle_l_mid+angle_l_add) > YDIFLY_SERVO_ANGLE_L_MAX )                
+                {
+                    angle_rate = (YDIFLY_SERVO_ANGLE_L_MAX-angle_l_mid)/angle_l_add;
+                    angle_rate_min = ( angle_rate_min > angle_rate ) ? angle_rate : angle_rate_min;
+                }
+                if( (angle_l_mid-angle_l_add) < YDIFLY_SERVO_ANGLE_L_MIN )
+                {
+                    angle_rate = (angle_l_mid-YDIFLY_SERVO_ANGLE_L_MIN)/angle_l_add;
+                    angle_rate_min = ( angle_rate_min > angle_rate ) ? angle_rate : angle_rate_min;
+                }
+                if( (angle_r_mid+angle_r_add) > YDIFLY_SERVO_ANGLE_R_MAX )
+                {
+                    angle_rate = (YDIFLY_SERVO_ANGLE_R_MAX-angle_r_mid)/angle_r_add;
+                    angle_rate_min = ( angle_rate_min > angle_rate ) ? angle_rate : angle_rate_min;
+                }
+                if( (angle_r_mid-angle_r_add) < YDIFLY_SERVO_ANGLE_R_MIN )
+                {
+                    angle_rate = (angle_r_mid-YDIFLY_SERVO_ANGLE_R_MIN)/angle_r_add;
+                    angle_rate_min = ( angle_rate_min > angle_rate ) ? angle_rate : angle_rate_min;
+                }
+                angle_l_add *= angle_rate_min;
+                angle_r_add *= angle_rate_min;
 
                 /* 舵机控制正弦周期 */
                 control_T = YDIFLY_CYCLE_MAX + ydifly.remote.freq*(YDIFLY_CYCLE_MIN - YDIFLY_CYCLE_MAX)/1500;
 
                 /* 舵机角度控制 */
-                YDIFlyServoSinControl( angle_l_max, angle_l_min, angle_r_max, angle_r_min, control_T, YDIFLY_SPEED_DIFF );
+
+                YDIFlyServoSinControl( (angle_l_mid+angle_l_add), (angle_l_mid-angle_l_add), (angle_r_mid+angle_r_add), (angle_r_mid-angle_r_add), control_T, YDIFLY_SPEED_DIFF );
+                // YDIFlyServoSinControl( 120, 60, 120, 60, 1000, YDIFLY_SPEED_DIFF );
+
             }
             else if( ydifly.remote.swc == 2 )     // 如果拨动开关，翅膀摆动。拨杆到上档位
             {
-                YDIFlyServoAngleControl( SERVO_L, YDIFLY_SERVO_ANGLE_L_MIN );
-                YDIFlyServoAngleControl( SERVO_R, YDIFLY_SERVO_ANGLE_R_MIN );
-
+                YDIFlyServoAngleSpeedControl( SERVO_L, YDIFLY_SERVO_ANGLE_L_MIN, YDIFLY_WING_STAND_SPEED );
+                YDIFlyServoAngleSpeedControl( SERVO_R, YDIFLY_SERVO_ANGLE_R_MIN, YDIFLY_WING_STAND_SPEED );
+                time_now = 0;
             }
             else if( ydifly.remote.swc == 1 )     // 舵机处于初始位置。拨杆到中档位
             {
-                YDIFlyServoAngleControl( SERVO_L, YDIFLY_SERVO_ANGLE_L_INIT - ydifly.remote.pitch*YDIFLY_FACTOR_PITCH - ydifly.remote.offset*YDIFLY_FACTOR_OFFSET );
-                YDIFlyServoAngleControl( SERVO_R, YDIFLY_SERVO_ANGLE_R_INIT - ydifly.remote.pitch*YDIFLY_FACTOR_PITCH + ydifly.remote.offset*YDIFLY_FACTOR_OFFSET );
-
+                YDIFlyServoAngleSpeedControl( SERVO_L, angle_l_mid, YDIFLY_WING_STAND_SPEED );
+                YDIFlyServoAngleSpeedControl( SERVO_R, angle_r_mid, YDIFLY_WING_STAND_SPEED );
+                time_now = 0;
             }
             else    // 如果拨动开关，翅膀摆动。拨杆到下档位
             {
-                YDIFlyServoAngleControl( SERVO_L, YDIFLY_SERVO_ANGLE_L_MAX );
-                YDIFlyServoAngleControl( SERVO_R, YDIFLY_SERVO_ANGLE_R_MAX );
+                YDIFlyServoAngleSpeedControl( SERVO_L, YDIFLY_SERVO_ANGLE_L_MAX, YDIFLY_WING_STAND_SPEED );
+                YDIFlyServoAngleSpeedControl( SERVO_R, YDIFLY_SERVO_ANGLE_R_MAX, YDIFLY_WING_STAND_SPEED );
+                time_now = 0;
             }
         }
 
@@ -161,18 +313,17 @@ static void YDIFlyRemoteDecode( ydifly_remote_cmd_t* remote )
 static void YDIFlyServoSinControl( float l_angle_max, float l_angle_min, float r_angle_max, float r_angle_min, float T, float speed_diff )
 {
     float angle_set = 0;
-    static float time_now = 0;
 
     /* 输入参数保护 */
     if( speed_diff > YDIFLY_CONTROL_CYCLE )         speed_diff = YDIFLY_CONTROL_CYCLE-1;
     else if( speed_diff < -YDIFLY_CONTROL_CYCLE )   speed_diff =-YDIFLY_CONTROL_CYCLE+1;
-    // (l_angle_max-l_angle_min)/2 将标准正弦函数的幅值放大到所需的扑翼震动角度
-    // (l_angle_max+l_angle_min)/2 将标准正弦函数的中性点水平平移
-    // sin( time_now*6.283185307179586/T )生成目前时间下的[-1,1]的系数
-    angle_set = ((l_angle_max-l_angle_min)/2)*sin( time_now*6.283185307179586/T ) + (l_angle_max+l_angle_min)/2;
+
+
+    angle_set = ((l_angle_max-l_angle_min)/2)*sin( time_now*6.283185307179586/T + time_init ) + (l_angle_max+l_angle_min)/2;
+
     YDIFlyServoAngleControl( SERVO_L, angle_set );
 
-    angle_set = ((r_angle_max-r_angle_min)/2)*sin( time_now*6.283185307179586/T ) + (r_angle_max+r_angle_min)/2;
+    angle_set = ((r_angle_max-r_angle_min)/2)*sin( time_now*6.283185307179586/T + time_init ) + (r_angle_max+r_angle_min)/2;
     YDIFlyServoAngleControl( SERVO_R, angle_set );
 
     time_now += YDIFLY_CONTROL_CYCLE;
@@ -213,4 +364,51 @@ static void YDIFlyServoAngleControl( ydifly_servo_name_e servo_name, float angle
         #endif
         break;
     }
+}
+
+static void YDIFlyServoAngleSpeedControl( ydifly_servo_name_e servo_name, float angle_set, float speed )
+{
+  static float angleL_now = YDIFLY_SERVO_ANGLE_L_INIT, angleR_now = YDIFLY_SERVO_ANGLE_R_INIT;
+
+  if( angle_set < 0 )       angle_set = 0;
+  else if( angle_set > 180) angle_set = 180;
+  if( speed < 0 )           speed = 0;
+  else if( speed > 100)     speed = 100;
+
+  if( servo_name == SERVO_L )
+  {
+    if( fabs(angleL_now-angle_set) <= speed )
+    {
+      angleL_now = angle_set;
+    }
+    else if( (angleL_now-angle_set) > speed )
+    {
+      angleL_now -= speed;
+    }
+    else if( (angleL_now-angle_set) <-speed )
+    {
+      angleL_now += speed;
+    }
+    YDIFlyServoAngleControl(SERVO_L, angleL_now);
+  }
+  else if( servo_name == SERVO_R )
+  {
+    if( fabs(angleR_now-angle_set) <= speed )
+    {
+      angleR_now = angle_set;
+    }
+    else if( (angleR_now-angle_set) > speed )
+    {
+      angleR_now -= speed;
+    }
+    else if( (angleR_now-angle_set) <-speed )
+    {
+      angleR_now += speed;
+    }
+    YDIFlyServoAngleControl(SERVO_R, angleR_now);
+  }
+  else
+  {
+    return ;
+  }
 }
