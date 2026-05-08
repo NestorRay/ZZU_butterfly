@@ -1540,7 +1540,7 @@ void setup()
     devicesStart();
 
     pinMode( 10, OUTPUT );
-    pinMode( 3, OUTPUT );
+    pinMode( 1, OUTPUT );
 }
 
 void loop()
