@@ -66,7 +66,7 @@
 #define YDIFLY_WING_STAND_SPEED             0.5f    // 数字越小速度越慢
 
 /******************** 翅膀上拍下拍速度差 ******************* */
-#define YDIFLY_SPEED_DIFF                   -8       // 速度差需要在 -YDIFLY_CONTROL_CYCLE~YDIFLY_CONTROL_CYCLE 之间
+#define YDIFLY_SPEED_DIFF                   8       // 速度差需要在 -YDIFLY_CONTROL_CYCLE~YDIFLY_CONTROL_CYCLE 之间
 
 /******************** 任务控制周期参数 ******************* */
 #define YDIFLY_CONTROL_CYCLE                25      // 舵机的控制周期，ms
